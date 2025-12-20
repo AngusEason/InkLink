@@ -18,14 +18,27 @@ requests = None
 errors = 0
 
 # Create the bitmap that matches display exactly
-bitmap = displayio.Bitmap(800, 480, 4)
-palette = displayio.Palette(4)
+bitmap = displayio.Bitmap(800, 480, 2)
+palette = displayio.Palette(2)
+palette[0] = 0xFFFFFF  # White
+palette[1] = 0x000000  # Black
+
 
 # Create a group and add the bitmap with its palette - do this once
 group = displayio.Group()
 tile_grid = displayio.TileGrid(bitmap, pixel_shader=palette)
 group.append(tile_grid)
 display.root_group = group
+
+# Write initial black screen
+for y in range(480):
+    for x in range(800):
+        bitmap[x, y] = 1  # Blacck
+
+display.refresh()
+while(1):
+    print("Display should be black")
+    time.sleep(1)
 
 while True:
     if errors > 20:
