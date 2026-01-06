@@ -48,7 +48,7 @@ def image_to_4color_bytes(img):
     return out
 
 def main():
-    img = Image.open("input.png")
+    img = Image.open("input1.png")
     img = img.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.LANCZOS)
 
     data = image_to_4color_bytes(img)

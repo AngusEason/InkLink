@@ -10,7 +10,7 @@ const char* WIFI_SSID     = "Angus_S24_FE";
 const char* WIFI_PASSWORD = "youareachamp69";
 
 /* Image URL (raw GitHub) */
-const char* IMAGE_URL = "https://github.com/AngusEason/epaper-frame-server/raw/refs/heads/main/image.bin";
+const char* IMAGE_URL = "https://raw.githubusercontent.com/AngusEason/epaper-frame-server/main/image.bin";
 
 /* Poll interval */
 #define CHECK_INTERVAL_MS (60UL * 1000UL)   // 1 minute
@@ -136,6 +136,10 @@ bool downloadImage() {
     return true;
 }
 
+const UWORD slice_height = 40;
+const UWORD width_bytes = (EPD_7IN5H_WIDTH % 4 == 0) ? (EPD_7IN5H_WIDTH / 4) : (EPD_7IN5H_WIDTH / 4 + 1);
+static uint8_t sliceBuffer[slice_height * width_bytes] __attribute__((aligned(4)));
+
 /* ================= Display ================= */
 void displayImage() {
     Serial.println("Opening image from LittleFS for display...");
@@ -144,24 +148,24 @@ void displayImage() {
         Serial.println("Failed to open image for display!");
         return;
     }
+    Serial.println("LittleFS file opened.");
 
-    const UWORD sliceHeight = 40; // 40 rows at a time (~4.8 KB buffer)
-    const UWORD WidthBytes = (EPD_7IN5H_WIDTH % 4 == 0) ? (EPD_7IN5H_WIDTH / 4) : (EPD_7IN5H_WIDTH / 4 + 1);
-    uint8_t buf[WidthBytes * sliceHeight];
 
     UWORD ystart = 0;
+    Serial.println("Starting display refresh in slices...");
     while (ystart < EPD_7IN5H_HEIGHT) {
-        UWORD rows = min(sliceHeight, EPD_7IN5H_HEIGHT - ystart);
-        size_t bytesToRead = WidthBytes * rows;
-        size_t readBytes = f.read(buf, bytesToRead);
+        UWORD rows = min(slice_height, (uint16_t)(EPD_7IN5H_HEIGHT - ystart));
+        size_t bytesToRead = width_bytes * rows;
+        size_t readBytes = f.read(sliceBuffer, bytesToRead);
         if (readBytes != bytesToRead) {
             Serial.printf("Error reading slice at y=%d\n", ystart);
             break;
         }
 
-        EPD_7IN5H_DisplayPart(buf, 0, ystart, EPD_7IN5H_WIDTH, rows);
+        EPD_7IN5H_DisplayPart(sliceBuffer, 0, ystart, EPD_7IN5H_WIDTH, rows);
         ystart += rows;
         Serial.printf("Displayed slice at y=%d\n", ystart);
+        yield();
     }
 
     f.close();
@@ -195,10 +199,19 @@ void setup() {
     delay(2000);
 
     Serial.println("Initializing LittleFS...");
-    if (!LittleFS.begin()) {
-        Serial.println("LittleFS mount failed!");
-        while (1);
+
+    if (!LittleFS.begin(false)) {   // try mount WITHOUT formatting
+        Serial.println("LittleFS mount failed, formatting...");
+        if (!LittleFS.begin(true)) {   // format + mount
+            Serial.println("LittleFS format failed!");
+            while (1) {
+                delay(1000);
+            }
+        }
+        Serial.println("LittleFS formatted successfully");
     }
+
+    Serial.println("LittleFS mounted successfully");
 }
 
 /* ================= LOOP ================= */
