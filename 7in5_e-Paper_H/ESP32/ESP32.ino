@@ -136,7 +136,7 @@ bool downloadImage() {
     return true;
 }
 
-const UWORD slice_height = 40;
+const UWORD slice_height = 120;
 const UWORD width_bytes = (EPD_7IN5H_WIDTH % 4 == 0) ? (EPD_7IN5H_WIDTH / 4) : (EPD_7IN5H_WIDTH / 4 + 1);
 static uint8_t sliceBuffer[slice_height * width_bytes] __attribute__((aligned(4)));
 
@@ -153,6 +153,8 @@ void displayImage() {
 
     UWORD ystart = 0;
     Serial.println("Starting display refresh in slices...");
+
+    EPD_7IN5H_SendCommand(DATA_START_TRANSMISSION_COMMAND);
     while (ystart < EPD_7IN5H_HEIGHT) {
         UWORD rows = min(slice_height, (uint16_t)(EPD_7IN5H_HEIGHT - ystart));
         size_t bytesToRead = width_bytes * rows;
@@ -162,13 +164,20 @@ void displayImage() {
             break;
         }
 
-        EPD_7IN5H_DisplayPart(sliceBuffer, 0, ystart, EPD_7IN5H_WIDTH, rows);
+        for (int j = 0; j < rows; j++) {
+            for (int i = 0; i < width_bytes; i++) {
+                EPD_7IN5H_SendData(sliceBuffer[i + j * width_bytes]);
+            }
+        }
+
+        Serial.printf("Loaded slice at y=%d\n", ystart);
         ystart += rows;
-        Serial.printf("Displayed slice at y=%d\n", ystart);
         yield();
     }
 
     f.close();
+
+    EPD_7IN5H_TurnOnDisplay();
     Serial.println("Display refresh complete.");
 }
 
@@ -231,5 +240,5 @@ void loop() {
         }
     }
 
-    delay(50);
+    delay(180);
 }

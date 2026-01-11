@@ -52,7 +52,7 @@ function :	send command
 parameter:
      Reg : Command register
 ******************************************************************************/
-static void EPD_7IN5H_SendCommand(UBYTE Reg)
+void EPD_7IN5H_SendCommand(UBYTE Reg)
 {
     DEV_Digital_Write(EPD_DC_PIN, 0);
     DEV_Digital_Write(EPD_CS_PIN, 0);
@@ -65,7 +65,7 @@ function :	send data
 parameter:
     Data : Write data
 ******************************************************************************/
-static void EPD_7IN5H_SendData(UBYTE Data)
+void EPD_7IN5H_SendData(UBYTE Data)
 {
     DEV_Digital_Write(EPD_DC_PIN, 1);
     DEV_Digital_Write(EPD_CS_PIN, 0);
@@ -104,12 +104,12 @@ static void EPD_7IN5H_ReadBusyH(void)
 function :	Turn On Display
 parameter:
 ******************************************************************************/
-static void EPD_7IN5H_TurnOnDisplay(void)
+void EPD_7IN5H_TurnOnDisplay(void)
 {
     // EPD_7IN5H_SendCommand(0x04);
     // EPD_7IN5H_ReadBusyH();
 
-    EPD_7IN5H_SendCommand(0x12); // DISPLAY_REFRESH
+    EPD_7IN5H_SendCommand(DISPLAY_REFRESH_COMMAND); // DISPLAY_REFRESH
     EPD_7IN5H_SendData(0x00);
     EPD_7IN5H_ReadBusyH();
 
@@ -225,14 +225,13 @@ void EPD_7IN5H_Display(const UBYTE *Image)
     EPD_7IN5H_TurnOnDisplay();
 }
 
-void EPD_7IN5H_DisplayPart(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh)
+void EPD_7IN5H_WriteSliceToRam(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD image_width, UWORD image_heigh)
 {
     unsigned long i, j;
     UWORD Width, Height;
     Width = (EPD_7IN5H_WIDTH % 4 == 0)? (EPD_7IN5H_WIDTH / 4 ): (EPD_7IN5H_WIDTH / 4 + 1);
     Height = EPD_7IN5H_HEIGHT;
 
-    EPD_7IN5H_SendCommand(0x10);
 	for(i=0; i<Height; i++) {
 		for(j=0; j<Width; j++) {
 			if(i<image_heigh+ystart && i>=ystart && j<(image_width+xstart)/4 && j>=xstart/4) {
@@ -243,8 +242,9 @@ void EPD_7IN5H_DisplayPart(const UBYTE *Image, UWORD xstart, UWORD ystart, UWORD
 			}
 		}
 	}
-    EPD_7IN5H_TurnOnDisplay();
+    
 }
+
 
 /******************************************************************************
 function :	Enter sleep mode
