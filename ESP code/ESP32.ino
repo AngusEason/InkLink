@@ -10,7 +10,7 @@ const char* WIFI_SSID     = "Angus_S24_FE";
 const char* WIFI_PASSWORD = "youareachamp69";
 
 /* Image URL (raw GitHub) */
-const char* IMAGE_URL = "https://raw.githubusercontent.com/AngusEason/epaper-frame-server/main/image.bin";
+const char* IMAGE_URL = "https://eink-uploader-home-server-production.up.railway.app/static/image.bin";
 
 /* Poll interval */
 #define CHECK_INTERVAL_MS (60UL * 1000UL)   // 1 minute
