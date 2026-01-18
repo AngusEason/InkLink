@@ -1,31 +1,30 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <LittleFS.h>
-#include <ArduinoJson.h>
 
 #include "EPD_7in5h.h"
 #include "DEV_Config.h"
 
-#define HOME_SCREEN
-//#define MCLAREN_SCREEN
+//#define HOME_SCREEN
+#define MCLAREN_SCREEN
 
 /* ================= USER CONFIG ================= */
 #ifdef HOME_SCREEN
-const char* WIFI_SSID      = "gigacube-64F1B";
+const char* WIFI_SSID      = "gigacube-645F1B";
 const char* WIFI_PASSWORD = "6fMjmT5ggyr3523T";
-const char* META_URL      = "https://eink-uploader-home-server-production.up.railway.app/meta/home";
-const char* IMAGE_URL     = "https://eink-uploader-home-server-production.up.railway.app/static/eink_home.bin";
+const char* CRC_URL       = "https://eink-uploader-server-production.up.railway.app/static/home_crc32.bin";
+const char* IMAGE_URL     = "https://eink-uploader-server-production.up.railway.app/static/home_image.bin";
 #endif
 
 #ifdef MCLAREN_SCREEN
-const char* WIFI_SSID      = "McLaren Guest";
-const char* WIFI_PASSWORD = "";
-const char* META_URL      = "https://eink-uploader-home-server-production.up.railway.app/meta/work";
-const char* IMAGE_URL     = "https://eink-uploader-home-server-production.up.railway.app/static/eink_work.bin";
+const char* WIFI_SSID      = "gigacube-645F1B";
+const char* WIFI_PASSWORD = "6fMjmT5ggyr3523T";
+const char* CRC_URL       = "https://eink-uploader-server-production.up.railway.app/static/work_crc32.bin";
+const char* IMAGE_URL     = "https://eink-uploader-server-production.up.railway.app/static/work_image.bin";
 #endif
 
 /* Poll interval */
-#define CHECK_INTERVAL_MS (300UL * 1000UL)   // 5 minutes
+#define CHECK_INTERVAL_MS (60UL * 1000UL)   // 1 minute
 
 /* Display parameters */
 #define IMAGE_WIDTH   800
@@ -34,61 +33,38 @@ const char* IMAGE_URL     = "https://eink-uploader-home-server-production.up.rai
 
 #define IMAGE_PATH    "/image.bin"
 #define TEMP_PATH     "/image_tmp.bin"
-#define CRC_PATH      "/image.crc"
 
-/* ================= CRC STORAGE ================= */
-uint32_t loadStoredCRC() {
-    if (!LittleFS.exists(CRC_PATH)) return 0;
+/* ================= Runtime CRC ================= */
+static uint32_t lastImageCRC = 0;
 
-    File f = LittleFS.open(CRC_PATH, "r");
-    if (!f) return 0;
-
-    uint32_t crc = f.parseInt();
-    f.close();
-    return crc;
-}
-
-void saveStoredCRC(uint32_t crc) {
-    File f = LittleFS.open(CRC_PATH, "w");
-    if (!f) return;
-    f.printf("%lu", crc);
-    f.close();
-}
-
-/* ================= METADATA CHECK ================= */
-bool checkForNewImage(uint32_t &newCRC) {
+/* ================= Fetch CRC ================= */
+bool fetchServerCRC(uint32_t &outCRC) {
     HTTPClient http;
-    http.begin(META_URL);
+    http.begin(CRC_URL);
 
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
-        Serial.printf("Metadata HTTP error: %d\n", code);
+        Serial.printf("CRC fetch failed: %d\n", code);
         http.end();
         return false;
     }
 
-    DynamicJsonDocument doc(256);
-    deserializeJson(doc, http.getString());
-    http.end();
-
-    newCRC = doc["crc32"];
-    uint32_t size = doc["size"];
-
-    if (size != IMAGE_SIZE) {
-        Serial.println("Image size mismatch from server!");
+    if (http.getSize() != 4) {
+        Serial.println("CRC file size invalid");
+        http.end();
         return false;
     }
 
-    uint32_t oldCRC = loadStoredCRC();
+    WiFiClient *stream = http.getStreamPtr();
+    stream->readBytes((uint8_t*)&outCRC, 4);
 
-    Serial.printf("Server CRC: %lu | Stored CRC: %lu\n", newCRC, oldCRC);
-
-    return newCRC != oldCRC;
+    http.end();
+    return true;
 }
 
-/* ================= Download & Save ================= */
-bool downloadImage(uint32_t newCRC) {
-    Serial.println("Downloading new image...");
+/* ================= Download Image ================= */
+bool downloadImage() {
+    Serial.println("Downloading image...");
     HTTPClient http;
     http.begin(IMAGE_URL);
 
@@ -99,10 +75,17 @@ bool downloadImage(uint32_t newCRC) {
         return false;
     }
 
-    WiFiClient* stream = http.getStreamPtr();
+    int len = http.getSize();
+    if (len != IMAGE_SIZE) {
+        Serial.printf("Size mismatch (%d != %d)\n", len, IMAGE_SIZE);
+        http.end();
+        return false;
+    }
+
+    WiFiClient *stream = http.getStreamPtr();
     File f = LittleFS.open(TEMP_PATH, "w");
     if (!f) {
-        Serial.println("Failed to open temp file!");
+        Serial.println("Failed to open temp file");
         http.end();
         return false;
     }
@@ -124,18 +107,18 @@ bool downloadImage(uint32_t newCRC) {
     http.end();
 
     if (total != IMAGE_SIZE) {
-        Serial.println("Download incomplete!");
+        Serial.println("Download incomplete");
         LittleFS.remove(TEMP_PATH);
         return false;
     }
 
     if (LittleFS.exists(IMAGE_PATH)) LittleFS.remove(IMAGE_PATH);
     LittleFS.rename(TEMP_PATH, IMAGE_PATH);
-    saveStoredCRC(newCRC);
 
-    Serial.println("New image saved.");
+    Serial.println("Image saved");
     return true;
 }
+
 
 /* ================= Display ================= */
 const UWORD slice_height = 120;
@@ -143,62 +126,98 @@ const UWORD width_bytes = (EPD_7IN5H_WIDTH % 4 == 0) ? (EPD_7IN5H_WIDTH / 4) : (
 static uint8_t sliceBuffer[slice_height * width_bytes] __attribute__((aligned(4)));
 
 void displayImage() {
+    Serial.println("Opening image from LittleFS for display...");
     File f = LittleFS.open(IMAGE_PATH, "r");
-    if (!f) return;
+    if (!f) {
+        Serial.println("Failed to open image for display!");
+        return;
+    }
+    Serial.println("LittleFS file opened.");
+
 
     UWORD ystart = 0;
-    EPD_7IN5H_SendCommand(DATA_START_TRANSMISSION_COMMAND);
+    Serial.println("Starting display refresh in slices...");
 
+    EPD_7IN5H_SendCommand(DATA_START_TRANSMISSION_COMMAND);
     while (ystart < EPD_7IN5H_HEIGHT) {
         UWORD rows = min(slice_height, (uint16_t)(EPD_7IN5H_HEIGHT - ystart));
-        f.read(sliceBuffer, width_bytes * rows);
+        size_t bytesToRead = width_bytes * rows;
+        size_t readBytes = f.read(sliceBuffer, bytesToRead);
+        if (readBytes != bytesToRead) {
+            Serial.printf("Error reading slice at y=%d\n", ystart);
+            break;
+        }
 
-        for (int j = 0; j < rows; j++)
-            for (int i = 0; i < width_bytes; i++)
+        for (int j = 0; j < rows; j++) {
+            for (int i = 0; i < width_bytes; i++) {
                 EPD_7IN5H_SendData(sliceBuffer[i + j * width_bytes]);
+            }
+        }
 
+        Serial.printf("Loaded slice at y=%d\n", ystart);
         ystart += rows;
         yield();
     }
 
     f.close();
+
     EPD_7IN5H_TurnOnDisplay();
+    Serial.println("Display refresh complete.");
 }
 
 /* ================= SETUP ================= */
 void setup() {
     Serial.begin(115200);
-
+    delay(1000);
+    Serial.printf("Connecting to WiFi SSID: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
     }
     Serial.println("\nWiFi connected");
+    Serial.print("IP address: "); Serial.println(WiFi.localIP());
+    Serial.println("Initializing e-paper display...");
 
     DEV_Module_Init();
     EPD_7IN5H_Init();
     EPD_7IN5H_Clear(EPD_7IN5H_WHITE);
 
-    if (!LittleFS.begin(false)) {
-        LittleFS.begin(true);
+    Serial.println("Initializing LittleFS...");
+    if (!LittleFS.begin(false)) {   // try mount WITHOUT formatting
+        Serial.println("LittleFS mount failed, formatting...");
+        if (!LittleFS.begin(true)) {   // format + mount
+            Serial.println("LittleFS format failed!");
+            while (1) {
+                delay(1000);
+            }
+        }
+        Serial.println("LittleFS formatted successfully");
     }
+
+    Serial.println("LittleFS mounted successfully");
 }
 
 /* ================= LOOP ================= */
 unsigned long lastCheck = 0;
 
 void loop() {
-    if (millis() - lastCheck >= CHECK_INTERVAL_MS) {
-        lastCheck = millis();
+    unsigned long now = millis();
+    if (now - lastCheck >= CHECK_INTERVAL_MS) {
+        lastCheck = now;
 
-        uint32_t newCRC;
-        if (checkForNewImage(newCRC)) {
-            if (downloadImage(newCRC)) {
+        uint32_t serverCRC;
+        Serial.println("Checking for new image on server...");
+        if (!fetchServerCRC(serverCRC)) return;
+        Serial.println("Current image CRC32: " + String(lastImageCRC, HEX) + "    Server image CRC32: " + String(serverCRC, HEX));
+        if (serverCRC != lastImageCRC) {
+            Serial.println("New image detected");
+            if (downloadImage()) {
                 displayImage();
+                lastImageCRC = serverCRC;
             }
         } else {
-            Serial.println("No update needed.");
+            Serial.println("Image unchanged");
         }
     }
 }
