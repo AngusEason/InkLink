@@ -5,8 +5,8 @@
 #include "EPD_7in5h.h"
 #include "DEV_Config.h"
 
-//#define HOME_SCREEN
-#define MCLAREN_SCREEN
+#define HOME_SCREEN
+//#define MCLAREN_SCREEN
 
 /* ================= USER CONFIG ================= */
 #ifdef HOME_SCREEN
@@ -14,6 +14,7 @@ const char* WIFI_SSID      = "gigacube-645F1B";
 const char* WIFI_PASSWORD = "6fMjmT5ggyr3523T";
 const char* CRC_URL       = "https://eink-uploader-server-production.up.railway.app/static/home_crc32.bin";
 const char* IMAGE_URL     = "https://eink-uploader-server-production.up.railway.app/static/home_image.bin";
+const char* SCREEN_NAME_STRING = "Home";
 #endif
 
 #ifdef MCLAREN_SCREEN
@@ -21,10 +22,11 @@ const char* WIFI_SSID      = "gigacube-645F1B";
 const char* WIFI_PASSWORD = "6fMjmT5ggyr3523T";
 const char* CRC_URL       = "https://eink-uploader-server-production.up.railway.app/static/work_crc32.bin";
 const char* IMAGE_URL     = "https://eink-uploader-server-production.up.railway.app/static/work_image.bin";
+const char* SCREEN_NAME_STRING = "Work";
 #endif
 
 /* Poll interval */
-#define CHECK_INTERVAL_MS (60UL * 1000UL)   // 1 minute
+#define CHECK_INTERVAL_MS (10UL * 60UL * 1000UL)   // 10 minutes
 
 /* Display parameters */
 #define IMAGE_WIDTH   800
@@ -169,6 +171,7 @@ void displayImage() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+    Serial.printf("%s screen\r\n", SCREEN_NAME_STRING);
     Serial.printf("Connecting to WiFi SSID: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
